@@ -16,6 +16,7 @@ from ..core import PipelineRegistry, RunConfig, RunStateManager
 from .widgets import (
     MetricsDisplay,
     OutputCapture,
+    ParameterEditor,
     PipelineSelector,
     RunSelector,
 )
@@ -69,9 +70,19 @@ class RunSelectionScreen(Screen):
         pipeline_name = self.app.selected_pipeline
         runs = self.app.state_manager.get_resumable_runs(pipeline_name)
 
+        if runs:
+            content = RunSelector(runs, id="run_selector")
+        else:
+            # Show message and new run button when no previous runs
+            content = Vertical(
+                Label("No previous runs available"),
+                Label(""),
+                Button("New Run", variant="primary", id="new_run"),
+            )
+
         yield Container(
             Label(f"Pipeline: {pipeline_name}", id="title"),
-            RunSelector(runs, id="run_selector") if runs else Label("No previous runs available"),
+            content,
             id="main_container",
         )
         yield Footer()
@@ -84,10 +95,65 @@ class RunSelectionScreen(Screen):
             if run_id:
                 self.app.resume_run(run_id)
         elif event.button.id == "new_run":
-            self.app.create_new_run()
+            self.app.show_parameter_config()
 
     def action_back(self) -> None:
         """Go back to pipeline selection."""
+        self.app.pop_screen()
+
+
+class ParameterConfigScreen(Screen):
+    """Screen for configuring pipeline parameters."""
+
+    BINDINGS = [
+        Binding("escape", "back", "Back"),
+        Binding("q", "quit", "Quit"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+
+        pipeline_name = self.app.selected_pipeline
+        pipeline_class = PipelineRegistry.get(pipeline_name)
+        config = pipeline_class.get_default_config()
+
+        # Extract key parameters for editing
+        params = {
+            "n_estimators": config.model_params.get("n_estimators", 100),
+            "learning_rate": config.model_params.get("learning_rate", 0.01),
+            "max_depth": config.model_params.get("max_depth", 5),
+        }
+
+        yield Container(
+            Label(f"Configure: {pipeline_name}", id="title"),
+            ParameterEditor(params, id="param_editor"),
+            Horizontal(
+                Button("Start Training", variant="primary", id="start_training"),
+                Button("Back", variant="default", id="back_button"),
+                classes="button-row",
+            ),
+            id="main_container",
+        )
+        yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events."""
+        if event.button.id == "start_training":
+            # Get updated parameters
+            editor = self.query_one("#param_editor", ParameterEditor)
+            updated_params = editor.get_parameters()
+            self.app.create_new_run(updated_params)
+        elif event.button.id == "back_button":
+            self.app.pop_screen()
+        elif event.button.id == "apply_params":
+            # Just refresh the display
+            pass
+        elif event.button.id == "reset_params":
+            editor = self.query_one("#param_editor", ParameterEditor)
+            editor.reset_parameters()
+
+    def action_back(self) -> None:
+        """Go back to run selection."""
         self.app.pop_screen()
 
 
@@ -280,19 +346,31 @@ class NumeraiTUI(App):
     SCREENS = {
         "pipeline_selection": PipelineSelectionScreen,
         "run_selection": RunSelectionScreen,
+        "parameter_config": ParameterConfigScreen,
         "training": TrainingScreen,
     }
 
-    def __init__(self, runs_dir: Path = Path("./runs"), **kwargs):
+    def __init__(
+        self,
+        runs_dir: Path = Path("./runs"),
+        default_pipeline: Optional[str] = None,
+        **kwargs,
+    ):
         super().__init__(**kwargs)
         self.state_manager = RunStateManager(runs_dir)
-        self.selected_pipeline: Optional[str] = None
+        self.selected_pipeline: Optional[str] = default_pipeline
         self.current_run_config: Optional[RunConfig] = None
         self.current_pipeline_config = None
+        self.default_pipeline = default_pipeline
 
     def on_mount(self) -> None:
         """Initialize the application."""
-        self.push_screen("pipeline_selection")
+        # If a default pipeline is set, skip to parameter config
+        if self.default_pipeline and self.default_pipeline in PipelineRegistry.list_pipelines():
+            self.selected_pipeline = self.default_pipeline
+            self.push_screen("parameter_config")
+        else:
+            self.push_screen("pipeline_selection")
 
     def get_pipeline_list(self) -> list:
         """Get list of available pipelines."""
@@ -302,14 +380,22 @@ class NumeraiTUI(App):
             pipelines.append(info)
         return pipelines
 
-    def create_new_run(self) -> None:
-        """Create a new training run."""
+    def show_parameter_config(self) -> None:
+        """Show parameter configuration screen."""
+        self.push_screen("parameter_config")
+
+    def create_new_run(self, updated_params: Dict[str, Any] = None) -> None:
+        """Create a new training run with optional parameter updates."""
         if not self.selected_pipeline:
             return
 
         # Get pipeline class and default config
         pipeline_class = PipelineRegistry.get(self.selected_pipeline)
         pipeline_config = pipeline_class.get_default_config()
+
+        # Update parameters if provided
+        if updated_params:
+            pipeline_config.model_params.update(updated_params)
 
         # Create run config
         run_id = self.state_manager.create_run_id(self.selected_pipeline)

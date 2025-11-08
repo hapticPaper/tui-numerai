@@ -7,6 +7,13 @@ from .tui.app import NumeraiTUI
 from .utils.logging import setup_logging
 
 # Import pipelines to register them
+from .pipelines import (  # noqa: F401
+    CryptoPipeline,
+    LightGBMPipeline,
+    LightGBMWandbPipeline,
+    PyTorchPipeline,
+    SignalsPipeline,
+)
 
 
 def main():
@@ -56,10 +63,9 @@ def main():
     )
 
     # Create and run the TUI app
-    app = NumeraiTUI(runs_dir=args.runs_dir)
-
-    # If specific pipeline was requested, we could pre-select it here
-    # For now, we'll let users select via the UI
+    # Default to lightgbm_numerai if no pipeline specified
+    default_pipeline = args.pipeline if args.pipeline else "lightgbm_numerai"
+    app = NumeraiTUI(runs_dir=args.runs_dir, default_pipeline=default_pipeline)
 
     app.run()
 
