@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tui-numerai"
+version = "0.1.0"
+description = "A TUI framework for Numerai training and validation"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "textual>=0.41.0",
+    "pydantic>=2.0.0",
+    "structlog>=23.0.0",
+    "lightgbm>=4.0.0",
+    "torch>=2.0.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    "scikit-learn>=1.3.0",
+    "numerapi>=2.0.0",
+    "tqdm>=4.65.0",
+    "pyyaml>=6.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-asyncio>=0.21.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+]
+wandb = [
+    "wandb>=0.15.0",
+]
+influx = [
+    "influxdb-client>=1.36.0",
+]
+
+[project.scripts]
+tui-numerai = "tui_numerai.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["tui_numerai*"]
+
+[tool.black]
+line-length = 100
+target-version = ["py39"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
