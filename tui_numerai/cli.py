@@ -11,6 +11,8 @@ from .pipelines import (
     LightGBMPipeline,
     PyTorchPipeline,
     LightGBMWandbPipeline,
+    CryptoPipeline,
+    SignalsPipeline,
 )
 
 
