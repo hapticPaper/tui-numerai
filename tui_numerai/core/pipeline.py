@@ -16,7 +16,7 @@ logger = structlog.get_logger()
 
 class Pipeline(ABC):
     """Abstract base class for training pipelines.
-    
+
     Subclasses should implement:
     - train(): Main training logic
     - predict(): Generate predictions
@@ -40,7 +40,7 @@ class Pipeline(ABC):
     @abstractmethod
     def train(self) -> Dict[str, Any]:
         """Execute the training pipeline.
-        
+
         Returns:
             Dict containing training metrics and results
         """
@@ -49,10 +49,10 @@ class Pipeline(ABC):
     @abstractmethod
     def predict(self, data: pd.DataFrame) -> pd.DataFrame:
         """Generate predictions for the given data.
-        
+
         Args:
             data: Input features
-            
+
         Returns:
             DataFrame with predictions
         """
@@ -61,7 +61,7 @@ class Pipeline(ABC):
     @abstractmethod
     def load_data(self) -> tuple[pd.DataFrame, pd.DataFrame]:
         """Load and prepare training and validation data.
-        
+
         Returns:
             Tuple of (training_data, validation_data)
         """
@@ -71,7 +71,7 @@ class Pipeline(ABC):
     @abstractmethod
     def get_default_config(cls) -> PipelineConfig:
         """Get the default configuration for this pipeline.
-        
+
         Returns:
             Default PipelineConfig
         """
@@ -79,7 +79,7 @@ class Pipeline(ABC):
 
     def add_callback(self, callback: Callable) -> None:
         """Add a callback function to be called during training.
-        
+
         Callbacks receive (event_type: str, data: Dict[str, Any])
         """
         self._callbacks.append(callback)
@@ -94,65 +94,67 @@ class Pipeline(ABC):
 
     def save_model(self, path: Optional[Path] = None) -> Path:
         """Save the trained model.
-        
+
         Args:
             path: Optional path to save to, otherwise uses run_config
-            
+
         Returns:
             Path where model was saved
         """
         if path is None:
             path = self.run_config.run_dir / "model.pkl"
-        
+
         import pickle
+
         with open(path, "wb") as f:
             pickle.dump(self.model, f)
-        
+
         self.logger.info("model_saved", path=str(path))
         return path
 
     def load_model(self, path: Path) -> None:
         """Load a trained model from disk.
-        
+
         Args:
             path: Path to the saved model
         """
         import pickle
+
         with open(path, "rb") as f:
             self.model = pickle.load(f)
-        
+
         self.logger.info("model_loaded", path=str(path))
 
     def save_predictions(self, predictions: pd.DataFrame, path: Optional[Path] = None) -> Path:
         """Save predictions to disk.
-        
+
         Args:
             predictions: DataFrame with predictions
             path: Optional path to save to
-            
+
         Returns:
             Path where predictions were saved
         """
         if path is None:
             path = self.run_config.run_dir / "predictions.csv"
-        
+
         predictions.to_csv(path, index=True)
         self.logger.info("predictions_saved", path=str(path), rows=len(predictions))
         return path
 
     def save_metrics(self, metrics: Dict[str, Any]) -> None:
         """Save metrics to the run configuration.
-        
+
         Args:
             metrics: Dictionary of metrics to save
         """
         self.run_config.metrics.update(metrics)
-        
+
         # Save to disk
         metrics_path = self.run_config.run_dir / "metrics" / "metrics.json"
         with open(metrics_path, "w") as f:
             json.dump(self.run_config.metrics, f, indent=2, default=str)
-        
+
         self.logger.info("metrics_saved", metrics=metrics)
 
 
@@ -164,7 +166,7 @@ class PipelineRegistry:
     @classmethod
     def register(cls, name: str, pipeline_class: Type[Pipeline]) -> None:
         """Register a pipeline class.
-        
+
         Args:
             name: Unique name for the pipeline
             pipeline_class: Pipeline class to register
@@ -175,13 +177,13 @@ class PipelineRegistry:
     @classmethod
     def get(cls, name: str) -> Type[Pipeline]:
         """Get a registered pipeline class.
-        
+
         Args:
             name: Name of the pipeline
-            
+
         Returns:
             Pipeline class
-            
+
         Raises:
             KeyError: If pipeline not found
         """
@@ -190,7 +192,7 @@ class PipelineRegistry:
     @classmethod
     def list_pipelines(cls) -> List[str]:
         """List all registered pipeline names.
-        
+
         Returns:
             List of pipeline names
         """
@@ -199,16 +201,16 @@ class PipelineRegistry:
     @classmethod
     def get_pipeline_info(cls, name: str) -> Dict[str, Any]:
         """Get information about a pipeline.
-        
+
         Args:
             name: Name of the pipeline
-            
+
         Returns:
             Dictionary with pipeline information
         """
         pipeline_class = cls._pipelines[name]
         default_config = pipeline_class.get_default_config()
-        
+
         return {
             "name": name,
             "class": pipeline_class.__name__,
@@ -220,13 +222,15 @@ class PipelineRegistry:
 
 def register_pipeline(name: str):
     """Decorator to register a pipeline class.
-    
+
     Usage:
         @register_pipeline("my_pipeline")
         class MyPipeline(Pipeline):
             ...
     """
+
     def decorator(cls: Type[Pipeline]):
         PipelineRegistry.register(name, cls)
         return cls
+
     return decorator

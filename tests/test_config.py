@@ -1,9 +1,6 @@
 """Tests for configuration models."""
 
 from pathlib import Path
-from datetime import datetime
-
-import pytest
 
 from tui_numerai.core.config import (
     CompetitionType,
@@ -21,7 +18,7 @@ def test_competition_config():
         models_dir=Path("/tmp/models"),
         predictions_dir=Path("/tmp/predictions"),
     )
-    
+
     assert config.competition == CompetitionType.NUMERAI
     assert config.data_dir == Path("/tmp/data")
     assert config.models_dir == Path("/tmp/models")
@@ -37,7 +34,7 @@ def test_pipeline_config():
         description="Test pipeline",
         model_params={"n_estimators": 100},
     )
-    
+
     assert config.name == "test_pipeline"
     assert config.competition == CompetitionType.NUMERAI
     assert config.version == "1.0.0"
@@ -50,7 +47,7 @@ def test_run_config():
         name="test_pipeline",
         competition=CompetitionType.NUMERAI,
     )
-    
+
     config = RunConfig(
         run_id="test_run_123",
         pipeline_name="test_pipeline",
@@ -59,7 +56,7 @@ def test_run_config():
         pipeline_config=pipeline_config,
         run_dir=Path("/tmp/runs/test_run_123"),
     )
-    
+
     assert config.run_id == "test_run_123"
     assert config.status == "created"
     assert config.pipeline_name == "test_pipeline"

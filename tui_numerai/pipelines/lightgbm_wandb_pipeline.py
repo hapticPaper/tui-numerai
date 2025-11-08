@@ -3,7 +3,6 @@
 from typing import Any, Dict
 
 from ..core import PipelineConfig
-from ..core.config import CompetitionType
 from ..core.pipeline import register_pipeline
 from .lightgbm_pipeline import LightGBMPipeline
 
@@ -28,29 +27,30 @@ class LightGBMWandbPipeline(LightGBMPipeline):
         if self.config.use_wandb:
             try:
                 import wandb
-                
+
                 wandb.init(
                     project=self.config.wandb_project,
                     name=self.run_config.run_id,
                     config=self.config.model_dump(),
                 )
-                
+
                 self.emit_event("log", {"message": "Initialized Weights & Biases"})
             except ImportError:
-                self.emit_event("log", {
-                    "message": "Warning: wandb not installed, skipping W&B logging"
-                })
-        
+                self.emit_event(
+                    "log", {"message": "Warning: wandb not installed, skipping W&B logging"}
+                )
+
         # Run training
         metrics = super().train()
-        
+
         # Log to W&B
         if self.config.use_wandb:
             try:
                 import wandb
+
                 wandb.log(metrics)
                 wandb.finish()
-            except:
+            except Exception:
                 pass
-        
+
         return metrics

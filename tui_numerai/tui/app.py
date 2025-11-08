@@ -10,13 +10,12 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Label, Static
+from textual.widgets import Button, Footer, Header, Label
 
 from ..core import PipelineRegistry, RunConfig, RunStateManager
 from .widgets import (
     MetricsDisplay,
     OutputCapture,
-    ParameterEditor,
     PipelineSelector,
     RunSelector,
 )
@@ -66,10 +65,10 @@ class RunSelectionScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        
+
         pipeline_name = self.app.selected_pipeline
         runs = self.app.state_manager.get_resumable_runs(pipeline_name)
-        
+
         yield Container(
             Label(f"Pipeline: {pipeline_name}", id="title"),
             RunSelector(runs, id="run_selector") if runs else Label("No previous runs available"),
@@ -139,42 +138,42 @@ class TrainingScreen(Screen):
         try:
             output = self.query_one("#output_capture", OutputCapture)
             metrics_display = self.query_one("#metrics_display", MetricsDisplay)
-            
+
             output.write("[bold green]Starting training...[/bold green]")
-            
+
             # Get pipeline
             pipeline_class = PipelineRegistry.get(self.app.selected_pipeline)
             pipeline = pipeline_class(
                 self.app.current_pipeline_config,
                 self.app.current_run_config,
             )
-            
+
             # Add callback to update UI
             def on_event(event_type: str, data: Dict[str, Any]) -> None:
                 if event_type == "log":
                     output.write(data.get("message", ""))
                 elif event_type == "metrics":
                     metrics_display.update_metrics(data)
-            
+
             pipeline.add_callback(on_event)
-            
+
             # Run training in thread pool to avoid blocking
             loop = asyncio.get_event_loop()
             results = await loop.run_in_executor(None, pipeline.train)
-            
-            output.write(f"[bold green]Training completed![/bold green]")
+
+            output.write("[bold green]Training completed![/bold green]")
             metrics_display.update_metrics(results)
-            
+
             # Update run config
             self.app.current_run_config.status = "completed"
             self.app.current_run_config.completed_at = datetime.now()
             self.app.state_manager.save_run_config(self.app.current_run_config)
-            
+
         except Exception as e:
             output = self.query_one("#output_capture", OutputCapture)
             output.write(f"[bold red]Error: {str(e)}[/bold red]")
             logger.error("training_error", error=str(e), exc_info=True)
-            
+
             self.app.current_run_config.status = "failed"
             self.app.state_manager.save_run_config(self.app.current_run_config)
 
@@ -311,11 +310,11 @@ class NumeraiTUI(App):
         # Get pipeline class and default config
         pipeline_class = PipelineRegistry.get(self.selected_pipeline)
         pipeline_config = pipeline_class.get_default_config()
-        
+
         # Create run config
         run_id = self.state_manager.create_run_id(self.selected_pipeline)
         run_dir = self.state_manager.get_run_directory(run_id)
-        
+
         run_config = RunConfig(
             run_id=run_id,
             pipeline_name=self.selected_pipeline,
@@ -324,13 +323,13 @@ class NumeraiTUI(App):
             pipeline_config=pipeline_config,
             run_dir=run_dir,
         )
-        
+
         run_config.ensure_run_directory()
         self.state_manager.save_run_config(run_config)
-        
+
         self.current_run_config = run_config
         self.current_pipeline_config = pipeline_config
-        
+
         # Start training
         self.push_screen("training")
 
@@ -339,11 +338,11 @@ class NumeraiTUI(App):
         run_config = self.state_manager.load_run_config(run_id)
         run_config.status = "resumed"
         run_config.resume_from = run_id
-        
+
         self.current_run_config = run_config
         self.current_pipeline_config = run_config.pipeline_config
-        
+
         self.state_manager.save_run_config(run_config)
-        
+
         # Start training
         self.push_screen("training")

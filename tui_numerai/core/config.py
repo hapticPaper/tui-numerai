@@ -45,32 +45,32 @@ class PipelineConfig(BaseModel):
     competition: CompetitionType
     version: str = "1.0.0"
     description: str = ""
-    
+
     # Training parameters
     epochs: Optional[int] = None
     batch_size: Optional[int] = None
     learning_rate: Optional[float] = None
-    
+
     # Model parameters (flexible for different models)
     model_params: Dict[str, Any] = Field(default_factory=dict)
-    
+
     # Feature configuration
     feature_set: Optional[str] = None
     neutralize_features: bool = False
-    
+
     # Target configuration
     target_name: str = "target"
-    
+
     # Output configuration
     save_predictions: bool = True
     save_model: bool = True
-    
+
     # Logging configuration
     use_wandb: bool = False
     wandb_project: Optional[str] = None
     use_influxdb: bool = False
     influxdb_url: Optional[str] = None
-    
+
     model_config = ConfigDict(extra="allow")  # Allow additional fields for flexibility
 
 
@@ -82,24 +82,24 @@ class RunConfig(BaseModel):
     pipeline_version: str
     competition: CompetitionType
     pipeline_config: PipelineConfig
-    
+
     # Run metadata
     created_at: datetime = Field(default_factory=datetime.now)
     started_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
-    
+
     # Run paths
     run_dir: Path
     model_path: Optional[Path] = None
     predictions_path: Optional[Path] = None
-    
+
     # Run state
     status: str = "created"  # created, running, completed, failed, resumed
     resume_from: Optional[str] = None  # run_id to resume from
-    
+
     # Metrics storage
     metrics: Dict[str, Any] = Field(default_factory=dict)
-    
+
     @field_validator("run_dir", mode="before")
     @classmethod
     def ensure_path(cls, v: Any) -> Path:

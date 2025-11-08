@@ -17,13 +17,15 @@ class SignalsPipeline(LightGBMPipeline):
         config.name = "lightgbm_signals"
         config.competition = CompetitionType.SIGNALS
         config.description = "LightGBM baseline for Numerai Signals"
-        
+
         # Signals-specific parameters (uses stock market data)
-        config.model_params.update({
-            "n_estimators": 1500,
-            "learning_rate": 0.015,
-            "max_depth": 6,
-            "num_leaves": 64,
-        })
-        
+        config.model_params.update(
+            {
+                "n_estimators": 1500,
+                "learning_rate": 0.015,
+                "max_depth": 6,
+                "num_leaves": 64,
+            }
+        )
+
         return config

@@ -13,7 +13,7 @@ def setup_logging(
     use_json: bool = False,
 ) -> None:
     """Set up structured logging with structlog.
-    
+
     Args:
         log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
         log_file: Optional path to log file
@@ -26,12 +26,12 @@ def setup_logging(
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
     ]
-    
+
     if use_json:
         processors.append(structlog.processors.JSONRenderer())
     else:
         processors.append(structlog.dev.ConsoleRenderer())
-    
+
     structlog.configure(
         processors=processors,
         wrapper_class=structlog.stdlib.BoundLogger,
@@ -39,16 +39,16 @@ def setup_logging(
         logger_factory=structlog.stdlib.LoggerFactory(),
         cache_logger_on_first_use=True,
     )
-    
+
     # Configure standard library logging
     import logging
-    
+
     logging.basicConfig(
         format="%(message)s",
         stream=sys.stdout,
         level=getattr(logging, log_level.upper()),
     )
-    
+
     if log_file:
         file_handler = logging.FileHandler(log_file)
         file_handler.setLevel(getattr(logging, log_level.upper()))

@@ -2,17 +2,15 @@
 
 from typing import Any, Dict, List, Optional
 
-from rich.syntax import Syntax
-from rich.table import Table
 from textual.app import ComposeResult
-from textual.containers import Container, Vertical, Horizontal
+from textual.containers import Vertical, Horizontal
 from textual.reactive import reactive
 from textual.widgets import Static, RichLog, Label, Input, Button, DataTable
 
 
 class OutputCapture(Static):
     """Widget for capturing and displaying scrolling output.
-    
+
     Useful for capturing logs from libraries like LightGBM.
     """
 
@@ -79,7 +77,7 @@ class ParameterEditor(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Label("Pipeline Parameters", classes="section-header")
-        
+
         for key, value in self.parameters.items():
             with Horizontal(classes="parameter-row"):
                 yield Label(f"{key}:", classes="parameter-label")
@@ -90,14 +88,14 @@ class ParameterEditor(Vertical):
                 )
                 self._inputs[key] = input_widget
                 yield input_widget
-        
+
         with Horizontal(classes="button-row"):
             yield Button("Apply", variant="primary", id="apply_params")
             yield Button("Reset", variant="default", id="reset_params")
 
     def get_parameters(self) -> Dict[str, Any]:
         """Get the current parameter values.
-        
+
         Returns:
             Dictionary of parameter values with type conversion
         """
@@ -105,10 +103,10 @@ class ParameterEditor(Vertical):
         for key, input_widget in self._inputs.items():
             value = input_widget.value
             original_type = type(self.parameters[key])
-            
+
             # Try to convert to the original type
             try:
-                if original_type == bool:
+                if original_type is bool:
                     result[key] = value.lower() in ("true", "1", "yes", "y")
                 elif original_type in (int, float):
                     result[key] = original_type(value)
@@ -116,7 +114,7 @@ class ParameterEditor(Vertical):
                     result[key] = value
             except (ValueError, AttributeError):
                 result[key] = value
-        
+
         return result
 
     def reset_parameters(self) -> None:
@@ -135,11 +133,11 @@ class RunSelector(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Label("Previous Runs", classes="section-header")
-        
+
         self._table_widget = DataTable()
         self._table_widget.add_columns("Run ID", "Status", "Created", "Completed")
         self._table_widget.cursor_type = "row"
-        
+
         for run in self.runs:
             self._table_widget.add_row(
                 run["run_id"],
@@ -147,22 +145,22 @@ class RunSelector(Vertical):
                 run["created_at"][:19] if run.get("created_at") else "N/A",
                 run["completed_at"][:19] if run.get("completed_at") else "N/A",
             )
-        
+
         yield self._table_widget
-        
+
         with Horizontal(classes="button-row"):
             yield Button("Resume Selected", variant="primary", id="resume_run")
             yield Button("New Run", variant="default", id="new_run")
 
     def get_selected_run_id(self) -> Optional[str]:
         """Get the run ID of the selected row.
-        
+
         Returns:
             Selected run ID or None
         """
         if not self._table_widget or self._table_widget.cursor_row < 0:
             return None
-        
+
         row = self._table_widget.cursor_row
         if row < len(self.runs):
             return self.runs[row]["run_id"]
@@ -179,34 +177,38 @@ class PipelineSelector(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Label("Available Pipelines", classes="section-header")
-        
+
         self._table_widget = DataTable()
         self._table_widget.add_columns("Pipeline", "Competition", "Version", "Description")
         self._table_widget.cursor_type = "row"
-        
+
         for pipeline in self.pipelines:
             self._table_widget.add_row(
                 pipeline["name"],
                 pipeline["competition"],
                 pipeline["version"],
-                pipeline["description"][:40] + "..." if len(pipeline["description"]) > 40 else pipeline["description"],
+                (
+                    pipeline["description"][:40] + "..."
+                    if len(pipeline["description"]) > 40
+                    else pipeline["description"]
+                ),
             )
-        
+
         yield self._table_widget
-        
+
         with Horizontal(classes="button-row"):
             yield Button("Select", variant="primary", id="select_pipeline")
             yield Button("Quit", variant="error", id="quit_app")
 
     def get_selected_pipeline(self) -> Optional[str]:
         """Get the name of the selected pipeline.
-        
+
         Returns:
             Selected pipeline name or None
         """
         if not self._table_widget or self._table_widget.cursor_row < 0:
             return None
-        
+
         row = self._table_widget.cursor_row
         if row < len(self.pipelines):
             return self.pipelines[row]["name"]

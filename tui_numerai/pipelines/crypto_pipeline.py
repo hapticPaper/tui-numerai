@@ -17,12 +17,14 @@ class CryptoPipeline(LightGBMPipeline):
         config.name = "lightgbm_crypto"
         config.competition = CompetitionType.CRYPTO
         config.description = "LightGBM baseline for Numerai Crypto"
-        
+
         # Crypto-specific parameters
-        config.model_params.update({
-            "n_estimators": 1000,  # Fewer estimators for faster crypto predictions
-            "learning_rate": 0.02,
-            "max_depth": 4,
-        })
-        
+        config.model_params.update(
+            {
+                "n_estimators": 1000,  # Fewer estimators for faster crypto predictions
+                "learning_rate": 0.02,
+                "max_depth": 4,
+            }
+        )
+
         return config
