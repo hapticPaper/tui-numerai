@@ -16,6 +16,7 @@ from ..core import PipelineRegistry, RunConfig, RunStateManager
 from .widgets import (
     MetricsDisplay,
     OutputCapture,
+    OutputRedirector,
     ParameterEditor,
     PipelineSelector,
     RunSelector,
@@ -223,9 +224,20 @@ class TrainingScreen(Screen):
 
             pipeline.add_callback(on_event)
 
-            # Run training in thread pool to avoid blocking
+            # Create output redirector to capture stdout/stderr from libraries
+            def capture_output(text: str) -> None:
+                """Capture any stdout/stderr output to the UI."""
+                if text.strip():
+                    output.write(text.rstrip())
+
+            # Run training in thread pool with output redirection
             loop = asyncio.get_event_loop()
-            results = await loop.run_in_executor(None, pipeline.train)
+
+            def train_with_redirect():
+                with OutputRedirector(capture_output):
+                    return pipeline.train()
+
+            results = await loop.run_in_executor(None, train_with_redirect)
 
             output.write("[bold green]Training completed![/bold green]")
             metrics_display.update_metrics(results)
@@ -297,15 +309,11 @@ class NumeraiTUI(App):
     #output_section {
         width: 2fr;
         height: 100%;
-        border: solid $primary;
-        padding: 1;
     }
     
     #metrics_section {
         width: 1fr;
         height: 100%;
-        border: solid $accent;
-        padding: 1;
     }
     
     #button_container {
@@ -318,28 +326,6 @@ class NumeraiTUI(App):
         height: auto;
         align: center middle;
         padding: 1;
-    }
-    
-    .parameter-row {
-        height: auto;
-        padding: 0 1;
-    }
-    
-    .parameter-label {
-        width: 30%;
-        padding: 1;
-    }
-    
-    OutputCapture {
-        height: 100%;
-    }
-    
-    MetricsDisplay {
-        height: 100%;
-    }
-    
-    DataTable {
-        height: 1fr;
     }
     """
 

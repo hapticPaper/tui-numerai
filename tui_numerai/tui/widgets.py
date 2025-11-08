@@ -1,5 +1,7 @@
 """Reusable TUI widgets."""
 
+import sys
+from io import StringIO
 from typing import Any, Dict, List, Optional
 
 from textual.app import ComposeResult
@@ -8,10 +10,61 @@ from textual.reactive import reactive
 from textual.widgets import Static, RichLog, Label, Input, Button, DataTable
 
 
+class OutputRedirector:
+    """Context manager to redirect stdout/stderr to a callback.
+
+    This ensures that library output (like LightGBM) is captured
+    and displayed within the TUI instead of breaking the interface.
+    """
+
+    def __init__(self, callback):
+        self.callback = callback
+        self.old_stdout = None
+        self.old_stderr = None
+        self.stdout_buffer = StringIO()
+        self.stderr_buffer = StringIO()
+
+    def __enter__(self):
+        self.old_stdout = sys.stdout
+        self.old_stderr = sys.stderr
+        sys.stdout = self
+        sys.stderr = self
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        sys.stdout = self.old_stdout
+        sys.stderr = self.old_stderr
+        return False
+
+    def write(self, text):
+        """Write intercepted output to the callback."""
+        if text and text.strip():
+            self.callback(text)
+        return len(text)
+
+    def flush(self):
+        """Flush is required for file-like objects."""
+        pass
+
+
 class OutputCapture(Static):
     """Widget for capturing and displaying scrolling output.
 
     Useful for capturing logs from libraries like LightGBM.
+    Includes border styling and proper output containment.
+    """
+
+    DEFAULT_CSS = """
+    OutputCapture {
+        border: solid $primary;
+        height: 1fr;
+        padding: 0 1;
+    }
+    
+    OutputCapture > RichLog {
+        height: 1fr;
+        scrollbar-gutter: stable;
+    }
     """
 
     def __init__(self, max_lines: int = 1000, **kwargs):
@@ -20,13 +73,14 @@ class OutputCapture(Static):
         self._log_widget: Optional[RichLog] = None
 
     def compose(self) -> ComposeResult:
-        self._log_widget = RichLog(highlight=True, markup=True)
+        self._log_widget = RichLog(highlight=True, markup=True, wrap=True)
         self._log_widget.max_lines = self.max_lines
         yield self._log_widget
 
     def write(self, text: str) -> None:
         """Write text to the output capture."""
         if self._log_widget:
+            # Strip ANSI codes and ensure text is properly formatted
             self._log_widget.write(text)
 
     def clear(self) -> None:
@@ -36,7 +90,22 @@ class OutputCapture(Static):
 
 
 class MetricsDisplay(Static):
-    """Widget for displaying training metrics in a table."""
+    """Widget for displaying training metrics in a table.
+
+    Includes border styling for clear visual separation.
+    """
+
+    DEFAULT_CSS = """
+    MetricsDisplay {
+        border: solid $accent;
+        height: 1fr;
+        padding: 0 1;
+    }
+    
+    MetricsDisplay > DataTable {
+        height: 1fr;
+    }
+    """
 
     metrics: reactive[Dict[str, Any]] = reactive({})
 
@@ -68,7 +137,28 @@ class MetricsDisplay(Static):
 
 
 class ParameterEditor(Vertical):
-    """Widget for editing pipeline parameters."""
+    """Widget for editing pipeline parameters.
+
+    Includes border styling and proper layout.
+    """
+
+    DEFAULT_CSS = """
+    ParameterEditor {
+        border: solid $primary;
+        padding: 1;
+        height: auto;
+    }
+    
+    ParameterEditor .parameter-row {
+        height: auto;
+        padding: 0 1;
+    }
+    
+    ParameterEditor .parameter-label {
+        width: 30%;
+        padding: 1 0;
+    }
+    """
 
     def __init__(self, parameters: Dict[str, Any], **kwargs):
         super().__init__(**kwargs)
@@ -124,7 +214,22 @@ class ParameterEditor(Vertical):
 
 
 class RunSelector(Vertical):
-    """Widget for selecting previous runs to resume."""
+    """Widget for selecting previous runs to resume.
+
+    Includes border styling and proper table layout.
+    """
+
+    DEFAULT_CSS = """
+    RunSelector {
+        border: solid $primary;
+        padding: 1;
+        height: 1fr;
+    }
+    
+    RunSelector > DataTable {
+        height: 1fr;
+    }
+    """
 
     def __init__(self, runs: List[Dict[str, Any]], **kwargs):
         super().__init__(**kwargs)
@@ -168,7 +273,22 @@ class RunSelector(Vertical):
 
 
 class PipelineSelector(Vertical):
-    """Widget for selecting a pipeline and competition."""
+    """Widget for selecting a pipeline and competition.
+
+    Includes border styling and proper table layout.
+    """
+
+    DEFAULT_CSS = """
+    PipelineSelector {
+        border: solid $primary;
+        padding: 1;
+        height: 1fr;
+    }
+    
+    PipelineSelector > DataTable {
+        height: 1fr;
+    }
+    """
 
     def __init__(self, pipelines: List[Dict[str, Any]], **kwargs):
         super().__init__(**kwargs)
