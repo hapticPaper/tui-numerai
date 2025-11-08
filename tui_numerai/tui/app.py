@@ -10,7 +10,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical
 from textual.screen import Screen
-from textual.widgets import Button, Footer, Header, Label
+from textual.widgets import Button, DataTable, Footer, Header, Label
 
 from ..core import PipelineRegistry, RunConfig, RunStateManager
 from .widgets import (
@@ -26,8 +26,8 @@ from .widgets import (
 logger = structlog.get_logger()
 
 
-class PipelineSelectionScreen(Screen):
-    """Screen for selecting a pipeline."""
+class MainMenuScreen(Screen):
+    """Main menu with recent runs history and navigation."""
 
     BINDINGS = [
         Binding("q", "quit", "Quit"),
@@ -35,8 +35,65 @@ class PipelineSelectionScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header()
+
+        # Get recent runs
+        recent_runs = self.app.state_manager.list_runs()[:5]  # Last 5 runs
+
         yield Container(
-            Label("Welcome to TUI Numerai", id="title"),
+            Label("TUI Numerai - Main Menu", id="title"),
+            Label("Recent Training Runs", classes="section-header"),
+            self._create_history_table(recent_runs),
+            Horizontal(
+                Button("New Training Run", variant="primary", id="new_training"),
+                Button("View All Runs", variant="default", id="view_runs"),
+                Button("Quit", variant="error", id="quit_app"),
+                classes="button-row",
+            ),
+            id="main_container",
+        )
+        yield Footer()
+
+    def _create_history_table(self, runs: list) -> DataTable:
+        """Create a table showing recent runs."""
+        table = DataTable()
+        table.add_columns("Pipeline", "Status", "Date", "Correlation")
+
+        for run in runs:
+            corr = run.get("metrics", {}).get("val_correlation", "N/A")
+            if isinstance(corr, float):
+                corr = f"{corr:.4f}"
+            table.add_row(
+                run.get("pipeline", "Unknown"),
+                run.get("status", "Unknown"),
+                run.get("created_at", "Unknown")[:10] if run.get("created_at") else "N/A",
+                str(corr),
+            )
+
+        return table
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events."""
+        if event.button.id == "new_training":
+            self.app.push_screen("pipeline_selection")
+        elif event.button.id == "view_runs":
+            # Could add a full runs history screen
+            self.app.push_screen("pipeline_selection")
+        elif event.button.id == "quit_app":
+            self.app.exit()
+
+
+class PipelineSelectionScreen(Screen):
+    """Screen for selecting a pipeline."""
+
+    BINDINGS = [
+        Binding("escape", "back", "Back"),
+        Binding("q", "quit", "Quit"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Container(
+            Label("Select Pipeline", id="title"),
             PipelineSelector(
                 self.app.get_pipeline_list(),
                 id="pipeline_selector",
@@ -55,6 +112,10 @@ class PipelineSelectionScreen(Screen):
                 self.app.push_screen("run_selection")
         elif event.button.id == "quit_app":
             self.app.exit()
+
+    def action_back(self) -> None:
+        """Go back to main menu."""
+        self.app.pop_screen()
 
 
 class RunSelectionScreen(Screen):
@@ -189,6 +250,7 @@ class TrainingScreen(Screen):
             ),
             Horizontal(
                 Button("Stop Training", variant="error", id="stop_training"),
+                Button("New Run", variant="primary", id="new_run"),
                 Button("Back to Menu", variant="default", id="back_menu"),
                 id="button_container",
             ),
@@ -260,17 +322,25 @@ class TrainingScreen(Screen):
         if event.button.id == "stop_training":
             if self.training_task:
                 self.training_task.cancel()
+            # Return to main menu
             self.app.pop_screen()
+            self.app.switch_screen("main_menu")
         elif event.button.id == "back_menu":
             if self.training_task:
                 self.training_task.cancel()
+            # Return to main menu
             self.app.pop_screen()
+            self.app.switch_screen("main_menu")
+        elif event.button.id == "new_run":
+            # Start a new training run
+            self.app.switch_screen("pipeline_selection")
 
     def action_stop(self) -> None:
         """Stop training."""
         if self.training_task:
             self.training_task.cancel()
         self.app.pop_screen()
+        self.app.switch_screen("main_menu")
 
 
 class NumeraiTUI(App):
@@ -330,6 +400,7 @@ class NumeraiTUI(App):
     """
 
     SCREENS = {
+        "main_menu": MainMenuScreen,
         "pipeline_selection": PipelineSelectionScreen,
         "run_selection": RunSelectionScreen,
         "parameter_config": ParameterConfigScreen,
@@ -351,12 +422,8 @@ class NumeraiTUI(App):
 
     def on_mount(self) -> None:
         """Initialize the application."""
-        # If a default pipeline is set, skip to parameter config
-        if self.default_pipeline and self.default_pipeline in PipelineRegistry.list_pipelines():
-            self.selected_pipeline = self.default_pipeline
-            self.push_screen("parameter_config")
-        else:
-            self.push_screen("pipeline_selection")
+        # Always start with main menu showing history
+        self.push_screen("main_menu")
 
     def get_pipeline_list(self) -> list:
         """Get list of available pipelines."""

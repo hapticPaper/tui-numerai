@@ -37,9 +37,13 @@ class OutputRedirector:
         return False
 
     def write(self, text):
-        """Write intercepted output to the callback."""
+        """Write intercepted output to the callback.
+
+        Does NOT write to the original stdout/stderr to keep output contained.
+        """
         if text and text.strip():
             self.callback(text)
+        # Don't write to old_stdout - that would defeat the purpose!
         return len(text)
 
     def flush(self):

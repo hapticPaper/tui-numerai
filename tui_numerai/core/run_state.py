@@ -141,6 +141,7 @@ class RunStateManager:
                         "status": config_data.get("status", "unknown"),
                         "created_at": config_data.get("created_at"),
                         "completed_at": config_data.get("completed_at"),
+                        "metrics": config_data.get("metrics", {}),
                     }
                 )
             except Exception as e:
