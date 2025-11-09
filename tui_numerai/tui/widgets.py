@@ -1,7 +1,8 @@
 """Reusable TUI widgets."""
 
+import os
 import sys
-from io import StringIO
+import threading
 from typing import Any, Dict, List, Optional
 
 from textual.app import ComposeResult
@@ -11,39 +12,111 @@ from textual.widgets import Static, RichLog, Label, Input, Button, DataTable
 
 
 class OutputRedirector:
-    """Context manager to redirect stdout/stderr to a callback.
+    """Context manager to redirect stdout/stderr at the file descriptor level.
 
-    This ensures that library output (like LightGBM) is captured
-    and displayed within the TUI instead of breaking the interface.
+    This captures output from libraries that write directly to fd 1/2
+    (like LightGBM's C++ backend), not just Python's sys.stdout/stderr.
     """
 
     def __init__(self, callback):
         self.callback = callback
+        self.old_stdout_fd = None
+        self.old_stderr_fd = None
         self.old_stdout = None
         self.old_stderr = None
-        self.stdout_buffer = StringIO()
-        self.stderr_buffer = StringIO()
+        self.pipe_out = None
+        self.pipe_err = None
+        self.reader_thread = None
+        self.stop_reading = False
 
     def __enter__(self):
+        # Save original file descriptors and Python objects
+        self.old_stdout_fd = os.dup(1)
+        self.old_stderr_fd = os.dup(2)
         self.old_stdout = sys.stdout
         self.old_stderr = sys.stderr
+
+        # Create pipes for capturing output
+        pipe_out_r, pipe_out_w = os.pipe()
+        pipe_err_r, pipe_err_w = os.pipe()
+
+        # Redirect file descriptors to write ends of pipes
+        os.dup2(pipe_out_w, 1)
+        os.dup2(pipe_err_w, 2)
+
+        # Close the write ends as they're now duplicated to fd 1 and 2
+        os.close(pipe_out_w)
+        os.close(pipe_err_w)
+
+        # Redirect Python's sys.stdout/stderr as well
         sys.stdout = self
         sys.stderr = self
+
+        # Store read ends for the reader thread
+        self.pipe_out = pipe_out_r
+        self.pipe_err = pipe_err_r
+
+        # Start reader thread to consume pipe output
+        self.stop_reading = False
+        self.reader_thread = threading.Thread(target=self._read_pipes, daemon=True)
+        self.reader_thread.start()
+
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        # Stop the reader thread
+        self.stop_reading = True
+
+        # Restore original file descriptors
+        os.dup2(self.old_stdout_fd, 1)
+        os.dup2(self.old_stderr_fd, 2)
+
+        # Close saved file descriptors
+        os.close(self.old_stdout_fd)
+        os.close(self.old_stderr_fd)
+
+        # Restore Python's stdout/stderr
         sys.stdout = self.old_stdout
         sys.stderr = self.old_stderr
+
+        # Close pipe read ends
+        if self.pipe_out is not None:
+            os.close(self.pipe_out)
+        if self.pipe_err is not None:
+            os.close(self.pipe_err)
+
+        # Wait for reader thread to finish
+        if self.reader_thread is not None:
+            self.reader_thread.join(timeout=1.0)
+
         return False
+
+    def _read_pipes(self):
+        """Read from pipes in a separate thread and send to callback."""
+        import select
+
+        while not self.stop_reading:
+            # Use select to check if there's data available
+            ready, _, _ = select.select([self.pipe_out, self.pipe_err], [], [], 0.1)
+
+            for fd in ready:
+                try:
+                    data = os.read(fd, 4096)
+                    if data:
+                        text = data.decode("utf-8", errors="replace")
+                        if text.strip():
+                            self.callback(text)
+                except (OSError, ValueError):
+                    # Pipe closed or other error
+                    break
 
     def write(self, text):
         """Write intercepted output to the callback.
 
-        Does NOT write to the original stdout/stderr to keep output contained.
+        This handles Python-level writes (print statements, etc.)
         """
         if text and text.strip():
             self.callback(text)
-        # Don't write to old_stdout - that would defeat the purpose!
         return len(text)
 
     def flush(self):
