@@ -1,0 +1,487 @@
+"""Main TUI application."""
+
+import asyncio
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional
+
+import structlog
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import Container, Horizontal, Vertical
+from textual.screen import Screen
+from textual.widgets import Button, DataTable, Footer, Header, Label
+
+from ..core import PipelineRegistry, RunConfig, RunStateManager
+from .widgets import (
+    MetricsDisplay,
+    OutputCapture,
+    OutputRedirector,
+    ParameterEditor,
+    PipelineSelector,
+    RunSelector,
+)
+
+
+logger = structlog.get_logger()
+
+
+class MainMenuScreen(Screen):
+    """Main menu with recent runs history and navigation."""
+
+    BINDINGS = [
+        Binding("q", "quit", "Quit"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+
+        # Get recent runs
+        recent_runs = self.app.state_manager.list_runs()[:5]  # Last 5 runs
+
+        yield Container(
+            Label("TUI Numerai - Main Menu", id="title"),
+            Label("Recent Training Runs", classes="section-header"),
+            self._create_history_table(recent_runs),
+            Horizontal(
+                Button("New Training Run", variant="primary", id="new_training"),
+                Button("View All Runs", variant="default", id="view_runs"),
+                Button("Quit", variant="error", id="quit_app"),
+                classes="button-row",
+            ),
+            id="main_container",
+        )
+        yield Footer()
+
+    def _create_history_table(self, runs: list) -> DataTable:
+        """Create a table showing recent runs."""
+        table = DataTable()
+        table.add_columns("Pipeline", "Status", "Date", "Correlation")
+
+        for run in runs:
+            corr = run.get("metrics", {}).get("val_correlation", "N/A")
+            if isinstance(corr, float):
+                corr = f"{corr:.4f}"
+            table.add_row(
+                run.get("pipeline", "Unknown"),
+                run.get("status", "Unknown"),
+                run.get("created_at", "Unknown")[:10] if run.get("created_at") else "N/A",
+                str(corr),
+            )
+
+        return table
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events."""
+        if event.button.id == "new_training":
+            self.app.push_screen("pipeline_selection")
+        elif event.button.id == "view_runs":
+            # Could add a full runs history screen
+            self.app.push_screen("pipeline_selection")
+        elif event.button.id == "quit_app":
+            self.app.exit()
+
+
+class PipelineSelectionScreen(Screen):
+    """Screen for selecting a pipeline."""
+
+    BINDINGS = [
+        Binding("escape", "back", "Back"),
+        Binding("q", "quit", "Quit"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Container(
+            Label("Select Pipeline", id="title"),
+            PipelineSelector(
+                self.app.get_pipeline_list(),
+                id="pipeline_selector",
+            ),
+            id="main_container",
+        )
+        yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events."""
+        if event.button.id == "select_pipeline":
+            selector = self.query_one("#pipeline_selector", PipelineSelector)
+            pipeline_name = selector.get_selected_pipeline()
+            if pipeline_name:
+                self.app.selected_pipeline = pipeline_name
+                self.app.push_screen("run_selection")
+        elif event.button.id == "quit_app":
+            self.app.exit()
+
+    def action_back(self) -> None:
+        """Go back to main menu."""
+        self.app.pop_screen()
+
+
+class RunSelectionScreen(Screen):
+    """Screen for selecting or creating a run."""
+
+    BINDINGS = [
+        Binding("escape", "back", "Back"),
+        Binding("q", "quit", "Quit"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+
+        pipeline_name = self.app.selected_pipeline
+        runs = self.app.state_manager.get_resumable_runs(pipeline_name)
+
+        if runs:
+            content = RunSelector(runs, id="run_selector")
+        else:
+            # Show message and new run button when no previous runs
+            content = Vertical(
+                Label("No previous runs available"),
+                Label(""),
+                Button("New Run", variant="primary", id="new_run"),
+            )
+
+        yield Container(
+            Label(f"Pipeline: {pipeline_name}", id="title"),
+            content,
+            id="main_container",
+        )
+        yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events."""
+        if event.button.id == "resume_run":
+            selector = self.query_one("#run_selector", RunSelector)
+            run_id = selector.get_selected_run_id()
+            if run_id:
+                self.app.resume_run(run_id)
+        elif event.button.id == "new_run":
+            self.app.show_parameter_config()
+
+    def action_back(self) -> None:
+        """Go back to pipeline selection."""
+        self.app.pop_screen()
+
+
+class ParameterConfigScreen(Screen):
+    """Screen for configuring pipeline parameters."""
+
+    BINDINGS = [
+        Binding("escape", "back", "Back"),
+        Binding("q", "quit", "Quit"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+
+        pipeline_name = self.app.selected_pipeline
+        pipeline_class = PipelineRegistry.get(pipeline_name)
+        config = pipeline_class.get_default_config()
+
+        # Extract key parameters for editing
+        params = {
+            "n_estimators": config.model_params.get("n_estimators", 100),
+            "learning_rate": config.model_params.get("learning_rate", 0.01),
+            "max_depth": config.model_params.get("max_depth", 5),
+        }
+
+        yield Container(
+            Label(f"Configure: {pipeline_name}", id="title"),
+            ParameterEditor(params, id="param_editor"),
+            Horizontal(
+                Button("Start Training", variant="primary", id="start_training"),
+                Button("Back", variant="default", id="back_button"),
+                classes="button-row",
+            ),
+            id="main_container",
+        )
+        yield Footer()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events."""
+        if event.button.id == "start_training":
+            # Get updated parameters
+            editor = self.query_one("#param_editor", ParameterEditor)
+            updated_params = editor.get_parameters()
+            self.app.create_new_run(updated_params)
+        elif event.button.id == "back_button":
+            self.app.pop_screen()
+        elif event.button.id == "apply_params":
+            # Just refresh the display
+            pass
+        elif event.button.id == "reset_params":
+            editor = self.query_one("#param_editor", ParameterEditor)
+            editor.reset_parameters()
+
+    def action_back(self) -> None:
+        """Go back to run selection."""
+        self.app.pop_screen()
+
+
+class TrainingScreen(Screen):
+    """Screen for monitoring training."""
+
+    BINDINGS = [
+        Binding("q", "quit", "Quit"),
+        Binding("s", "stop", "Stop Training"),
+    ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.training_task: Optional[asyncio.Task] = None
+
+    def compose(self) -> ComposeResult:
+        yield Header()
+        yield Container(
+            Label(f"Training: {self.app.selected_pipeline}", id="training_title"),
+            Horizontal(
+                Vertical(
+                    Label("Training Output", classes="section-header"),
+                    OutputCapture(id="output_capture"),
+                    id="output_section",
+                ),
+                Vertical(
+                    Label("Metrics", classes="section-header"),
+                    MetricsDisplay(id="metrics_display"),
+                    id="metrics_section",
+                ),
+                id="training_container",
+            ),
+            Horizontal(
+                Button("Stop Training", variant="error", id="stop_training"),
+                Button("New Run", variant="primary", id="new_run"),
+                Button("Back to Menu", variant="default", id="back_menu"),
+                id="button_container",
+            ),
+            id="main_container",
+        )
+        yield Footer()
+
+    def on_mount(self) -> None:
+        """Start training when screen mounts."""
+        self.training_task = asyncio.create_task(self.run_training())
+
+    async def run_training(self) -> None:
+        """Run the training pipeline."""
+        try:
+            output = self.query_one("#output_capture", OutputCapture)
+            metrics_display = self.query_one("#metrics_display", MetricsDisplay)
+
+            output.write("[bold green]Starting training...[/bold green]")
+
+            # Get pipeline
+            pipeline_class = PipelineRegistry.get(self.app.selected_pipeline)
+            pipeline = pipeline_class(
+                self.app.current_pipeline_config,
+                self.app.current_run_config,
+            )
+
+            # Add callback to update UI
+            def on_event(event_type: str, data: Dict[str, Any]) -> None:
+                if event_type == "log":
+                    output.write(data.get("message", ""))
+                elif event_type == "metrics":
+                    metrics_display.update_metrics(data)
+
+            pipeline.add_callback(on_event)
+
+            # Create output redirector to capture stdout/stderr from libraries
+            def capture_output(text: str) -> None:
+                """Capture any stdout/stderr output to the UI."""
+                if text.strip():
+                    output.write(text.rstrip())
+
+            # Run training in thread pool with output redirection
+            loop = asyncio.get_event_loop()
+
+            def train_with_redirect():
+                with OutputRedirector(capture_output):
+                    return pipeline.train()
+
+            results = await loop.run_in_executor(None, train_with_redirect)
+
+            output.write("[bold green]Training completed![/bold green]")
+            metrics_display.update_metrics(results)
+
+            # Update run config
+            self.app.current_run_config.status = "completed"
+            self.app.current_run_config.completed_at = datetime.now()
+            self.app.state_manager.save_run_config(self.app.current_run_config)
+
+        except Exception as e:
+            output = self.query_one("#output_capture", OutputCapture)
+            output.write(f"[bold red]Error: {str(e)}[/bold red]")
+            logger.error("training_error", error=str(e), exc_info=True)
+
+            self.app.current_run_config.status = "failed"
+            self.app.state_manager.save_run_config(self.app.current_run_config)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Handle button press events."""
+        if event.button.id == "stop_training":
+            if self.training_task:
+                self.training_task.cancel()
+            # Return to main menu
+            self.app.pop_screen()
+            self.app.switch_screen("main_menu")
+        elif event.button.id == "back_menu":
+            if self.training_task:
+                self.training_task.cancel()
+            # Return to main menu
+            self.app.pop_screen()
+            self.app.switch_screen("main_menu")
+        elif event.button.id == "new_run":
+            # Start a new training run
+            self.app.switch_screen("pipeline_selection")
+
+    def action_stop(self) -> None:
+        """Stop training."""
+        if self.training_task:
+            self.training_task.cancel()
+        self.app.pop_screen()
+        self.app.switch_screen("main_menu")
+
+
+class NumeraiTUI(App):
+    """Main TUI application for Numerai training."""
+
+    CSS = """
+    #title {
+        text-align: center;
+        padding: 1;
+        background: $primary;
+        color: $text;
+    }
+    
+    #training_title {
+        text-align: center;
+        padding: 1;
+        background: $accent;
+        color: $text;
+    }
+    
+    .section-header {
+        text-style: bold;
+        background: $surface;
+        padding: 1;
+    }
+    
+    #main_container {
+        height: 100%;
+        padding: 1;
+    }
+    
+    #training_container {
+        height: 1fr;
+    }
+    
+    #output_section {
+        width: 2fr;
+        height: 100%;
+    }
+    
+    #metrics_section {
+        width: 1fr;
+        height: 100%;
+    }
+    
+    #button_container {
+        height: auto;
+        padding: 1;
+        align: center middle;
+    }
+    
+    .button-row {
+        height: auto;
+        align: center middle;
+        padding: 1;
+    }
+    """
+
+    SCREENS = {
+        "main_menu": MainMenuScreen,
+        "pipeline_selection": PipelineSelectionScreen,
+        "run_selection": RunSelectionScreen,
+        "parameter_config": ParameterConfigScreen,
+        "training": TrainingScreen,
+    }
+
+    def __init__(
+        self,
+        runs_dir: Path = Path("./runs"),
+        default_pipeline: Optional[str] = None,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.state_manager = RunStateManager(runs_dir)
+        self.selected_pipeline: Optional[str] = default_pipeline
+        self.current_run_config: Optional[RunConfig] = None
+        self.current_pipeline_config = None
+        self.default_pipeline = default_pipeline
+
+    def on_mount(self) -> None:
+        """Initialize the application."""
+        # Always start with main menu showing history
+        self.push_screen("main_menu")
+
+    def get_pipeline_list(self) -> list:
+        """Get list of available pipelines."""
+        pipelines = []
+        for name in PipelineRegistry.list_pipelines():
+            info = PipelineRegistry.get_pipeline_info(name)
+            pipelines.append(info)
+        return pipelines
+
+    def show_parameter_config(self) -> None:
+        """Show parameter configuration screen."""
+        self.push_screen("parameter_config")
+
+    def create_new_run(self, updated_params: Dict[str, Any] = None) -> None:
+        """Create a new training run with optional parameter updates."""
+        if not self.selected_pipeline:
+            return
+
+        # Get pipeline class and default config
+        pipeline_class = PipelineRegistry.get(self.selected_pipeline)
+        pipeline_config = pipeline_class.get_default_config()
+
+        # Update parameters if provided
+        if updated_params:
+            pipeline_config.model_params.update(updated_params)
+
+        # Create run config
+        run_id = self.state_manager.create_run_id(self.selected_pipeline)
+        run_dir = self.state_manager.get_run_directory(run_id)
+
+        run_config = RunConfig(
+            run_id=run_id,
+            pipeline_name=self.selected_pipeline,
+            pipeline_version=pipeline_config.version,
+            competition=pipeline_config.competition,
+            pipeline_config=pipeline_config,
+            run_dir=run_dir,
+        )
+
+        run_config.ensure_run_directory()
+        self.state_manager.save_run_config(run_config)
+
+        self.current_run_config = run_config
+        self.current_pipeline_config = pipeline_config
+
+        # Start training
+        self.push_screen("training")
+
+    def resume_run(self, run_id: str) -> None:
+        """Resume a previous training run."""
+        run_config = self.state_manager.load_run_config(run_id)
+        run_config.status = "resumed"
+        run_config.resume_from = run_id
+
+        self.current_run_config = run_config
+        self.current_pipeline_config = run_config.pipeline_config
+
+        self.state_manager.save_run_config(run_config)
+
+        # Start training
+        self.push_screen("training")
